@@ -24,3 +24,18 @@ def test_kv_roundtrip():
 def test_kv_404():
     c = TestClient(app)
     assert c.get("/kv/nope").status_code == 404
+
+
+def test_list_kv():
+    c = TestClient(app)
+    assert c.post("/kv", json={"key": "x", "value": "1"}).status_code == 200
+    assert c.post("/kv", json={"key": "y", "value": "2"}).status_code == 200
+    r = c.get("/kv")
+    assert r.status_code == 200
+    body = r.json()
+    # keys only, no values in the listing
+    assert sorted(body["keys"]) == ["x", "y"]
+    assert set(body.keys()) == {"keys"}
+    # deletion is reflected in the listing
+    assert c.delete("/kv/x").status_code == 200
+    assert c.get("/kv").json()["keys"] == ["y"]

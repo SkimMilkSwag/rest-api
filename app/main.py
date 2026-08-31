@@ -23,6 +23,12 @@ def put(item: KV):
     return {"stored": item.key}
 
 
+@app.get("/kv")
+def list_kv():
+    """Return all stored keys (insertion order, values omitted)."""
+    return {"keys": list(_store.keys())}
+
+
 @app.get("/kv/{key}")
 def get(key: str):
     if key not in _store:
