@@ -1,7 +1,8 @@
+import logging
 import os, sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from fastapi.testclient import TestClient
-from app.main import app
+from app.main import app, _store
 
 
 def test_health():
@@ -9,6 +10,21 @@ def test_health():
     r = c.get("/health")
     assert r.status_code == 200
     assert r.json()["status"] == "ok"
+
+
+def test_request_logging(caplog):
+    with caplog.at_level(logging.INFO, logger="tiny_kv.access"):
+        c = TestClient(app)
+        assert c.get("/health").status_code == 200
+        assert c.post("/kv", json={"key": "logme", "value": "v"}).status_code == 200
+        assert c.get("/kv/missing").status_code == 404
+
+    messages = [r.getMessage() for r in caplog.records]
+    # one line per request: method path -> status
+    assert any("GET /health -> 200" in m for m in messages), messages
+    assert any("POST /kv -> 200" in m for m in messages), messages
+    assert any("GET /kv/missing -> 404" in m for m in messages), messages
+    _store.clear()
 
 
 def test_kv_roundtrip():

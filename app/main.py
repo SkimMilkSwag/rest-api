@@ -1,8 +1,16 @@
 """FastAPI application: a tiny in-memory key-value store with health + echo endpoints."""
+import logging
+
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
+from app.middleware import RequestLoggingMiddleware
+
 app = FastAPI(title="tiny-kv", version="0.1.0")
+app.add_middleware(RequestLoggingMiddleware)
+
+# make the access log visible by default (stderr via logging.basicConfig)
+logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 
 _store: dict[str, str] = {}
 
