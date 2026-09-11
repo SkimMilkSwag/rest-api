@@ -17,6 +17,9 @@ Then hit it:
 curl localhost:8000/health
 curl -X POST localhost:8000/kv -H 'Content-Type: application/json' -d '{"key":"a","value":"1"}'
 curl localhost:8000/kv/a
+
+# optional TTL (seconds): the key 404s once it expires
+curl -X POST localhost:8000/kv -H 'Content-Type: application/json' -d '{"key":"session","value":"x","ttl":3600}'
 ```
 
 Interactive docs are at `http://localhost:8000/docs`.
