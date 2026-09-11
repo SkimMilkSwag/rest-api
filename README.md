@@ -20,6 +20,9 @@ curl localhost:8000/kv/a
 
 # optional TTL (seconds): the key 404s once it expires
 curl -X POST localhost:8000/kv -H 'Content-Type: application/json' -d '{"key":"session","value":"x","ttl":3600}'
+
+# list all stored keys (values omitted, insertion order)
+curl localhost:8000/kv
 ```
 
 Interactive docs are at `http://localhost:8000/docs`.
@@ -39,12 +42,14 @@ python -m pytest tests/ -v
 
 ## Endpoints
 
-| Method | Path        | Description        |
-|--------|-------------|--------------------|
-| GET    | /health     | service status     |
-| POST   | /kv         | store key/value    |
-| GET    | /kv/{key}   | fetch a value      |
-| DELETE | /kv/{key}   | remove a key       |
+| Method | Path        | Description                     |
+|--------|-------------|---------------------------------|
+| GET    | /health     | service status                  |
+| POST   | /kv         | store key/value (optional ttl)  |
+| GET    | /kv         | list stored keys                |
+| GET    | /kv/{key}   | fetch a value                   |
+| DELETE | /kv/{key}   | remove a key                    |
+| GET    | /stats      | store size + op counters        |
 
 ## License
 
