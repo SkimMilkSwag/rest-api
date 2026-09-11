@@ -2,7 +2,7 @@ import logging
 import os, sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from fastapi.testclient import TestClient
-from app.main import app, _store
+from app.main import app, _store, _ops_total, _ops_by_kind
 
 
 def test_health():
@@ -164,3 +164,51 @@ def test_delete_expired_key_returns_404(monkeypatch):
     clock[0] = 12.0
     # once expired, the key is gone before delete even looks — 404
     assert c.delete("/kv/short").status_code == 404
+
+
+def test_stats_counts_ops_and_store_size(monkeypatch):
+    import app.main as m
+
+    clock = [50.0]
+    monkeypatch.setattr(m, "_now", lambda: clock[0])
+    base_total = m._ops_total
+    c = TestClient(app)
+
+    assert c.post("/kv", json={"key": "s1", "value": "v"}).status_code == 200
+    assert c.get("/kv/s1").status_code == 200
+    assert c.get("/kv").status_code == 200
+    assert c.delete("/kv/s1").status_code == 200
+
+    r = c.get("/stats")
+    assert r.status_code == 200
+    body = r.json()
+    # each of the four ops above is counted, on top of whatever earlier tests did
+    assert body["total_ops"] >= base_total + 4
+    kind = body["ops_by_kind"]
+    assert kind.get("put", 0) >= 1
+    assert kind.get("get", 0) >= 2
+    assert kind.get("list", 0) >= 1
+    assert kind.get("delete", 0) >= 1
+
+
+def test_stats_items_excludes_expired(monkeypatch):
+    import app.main as m
+
+    clock = [200.0]
+    monkeypatch.setattr(m, "_now", lambda: clock[0])
+    c = TestClient(app)
+    base_items = c.get("/stats").json()["items"]
+    assert c.post("/kv", json={"key": "ephemeral", "value": "v", "ttl": 1}).status_code == 200
+
+    # live entry is counted
+    assert c.get("/stats").json()["items"] == base_items + 1
+
+    clock[0] = 205.0
+    # the ttl entry expired, so item count is back to the pre-store baseline
+    assert c.get("/stats").json()["items"] == base_items
+
+
+def test_stats_kind_keys_are_sorted():
+    c = TestClient(app)
+    keys = list(c.get("/stats").json()["ops_by_kind"].keys())
+    assert keys == sorted(keys)

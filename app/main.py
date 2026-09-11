@@ -24,6 +24,17 @@ class KV(BaseModel):
 # key -> (value, expires_at). expires_at is None for entries stored without a ttl.
 _store: dict[str, tuple[str, Optional[float]]] = {}
 
+# request counters since boot; mutated by the counting wrapper below
+_ops_total = 0
+_ops_by_kind: dict[str, int] = {}
+
+
+def _bump(kind: str):
+    """Record one kv operation (put/get/delete/list) for /stats."""
+    global _ops_total
+    _ops_total += 1
+    _ops_by_kind[kind] = _ops_by_kind.get(kind, 0) + 1
+
 
 def _now() -> float:
     """Clock used for expiry bookkeeping.
@@ -55,6 +66,7 @@ def health():
 
 @app.post("/kv")
 def put(item: KV):
+    _bump("put")
     if item.ttl is not None and item.ttl <= 0:
         raise HTTPException(status_code=422, detail="ttl must be a positive integer (seconds)")
     expires_at = _now() + item.ttl if item.ttl is not None else None
@@ -65,12 +77,14 @@ def put(item: KV):
 @app.get("/kv")
 def list_kv():
     """Return all stored keys (insertion order, values omitted). Expired entries are purged first."""
+    _bump("list")
     _purge_expired()
     return {"keys": list(_store.keys())}
 
 
 @app.get("/kv/{key}")
 def get(key: str):
+    _bump("get")
     _purge_expired()
     if key not in _store:
         raise HTTPException(status_code=404, detail="key not found")
@@ -83,8 +97,20 @@ def get(key: str):
 
 @app.delete("/kv/{key}")
 def delete(key: str):
+    _bump("delete")
     _purge_expired()
     if key not in _store:
         raise HTTPException(status_code=404, detail="key not found")
     del _store[key]
     return {"deleted": key}
+
+
+@app.get("/stats")
+def stats():
+    """Store size + total kv ops since boot, broken down by kind (put/get/list/delete)."""
+    _purge_expired()
+    return {
+        "items": len(_store),
+        "total_ops": _ops_total,
+        "ops_by_kind": dict(sorted(_ops_by_kind.items())),
+    }
