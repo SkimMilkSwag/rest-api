@@ -34,6 +34,13 @@ docker build -t tiny-kv .
 docker run -p 8000:8000 tiny-kv
 ```
 
+Or one command via compose (includes a `/health` healthcheck):
+
+```bash
+docker compose up --build -d
+docker inspect --format '{{.State.Health.Status}}' tiny-kv   # -> healthy
+```
+
 ## Tests
 
 ```bash
