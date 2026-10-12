@@ -212,3 +212,76 @@ def test_stats_kind_keys_are_sorted():
     c = TestClient(app)
     keys = list(c.get("/stats").json()["ops_by_kind"].keys())
     assert keys == sorted(keys)
+
+
+def test_patch_shallow_merge():
+    c = TestClient(app)
+    r = c.post("/kv", json={"key": "cfg", "value": {"a": 1, "b": {"x": 1, "y": 2}, "c": "keep"}})
+    assert r.status_code == 200
+
+    # patch: existing keys overwritten, new keys added
+    r = c.patch("/kv/cfg", json={"b": {"x": 99}, "d": 4})
+    assert r.status_code == 200
+    body = r.json()
+    # shallow merge: b is REPLACED wholesale (not deep-merged), a and c survive, d added
+    assert body["value"] == {"a": 1, "b": {"x": 99}, "c": "keep", "d": 4}
+
+    # the merged value is what GET now returns
+    assert c.get("/kv/cfg").json()["value"] == {"a": 1, "b": {"x": 99}, "c": "keep", "d": 4}
+
+
+def test_patch_missing_key_404():
+    c = TestClient(app)
+    r = c.patch("/kv/nope", json={"a": 1})
+    assert r.status_code == 404
+    assert "not found" in r.json()["detail"]
+
+
+def test_patch_non_object_value_409():
+    c = TestClient(app)
+    # a scalar value can't be merged
+    assert c.post("/kv", json={"key": "scalar", "value": "just-a-string"}).status_code == 200
+    r = c.patch("/kv/scalar", json={"a": 1})
+    assert r.status_code == 409
+    assert "not an object" in r.json()["detail"]
+
+    # a list value can't be merged either
+    assert c.post("/kv", json={"key": "arr", "value": [1, 2, 3]}).status_code == 200
+    r = c.patch("/kv/arr", json={"a": 1})
+    assert r.status_code == 409
+
+
+def test_patch_preserves_ttl(monkeypatch):
+    import app.main as m
+
+    clock = [100.0]
+    monkeypatch.setattr(m, "_now", lambda: clock[0])
+    c = TestClient(app)
+    # store an object with a ttl
+    assert c.post("/kv", json={"key": "t", "value": {"a": 1}, "ttl": 5}).status_code == 200
+
+    clock[0] = 102.0  # two seconds in
+    r = c.patch("/kv/t", json={"b": 2})
+    assert r.status_code == 200
+    assert r.json()["value"] == {"a": 1, "b": 2}
+
+    # the ttl was preserved (not reset by the patch): still ~3s remaining at t=102.5
+    clock[0] = 102.5
+    data = c.get("/kv/t").json()
+    assert abs(data["ttl"] - 2.5) < 1e-6
+
+    # and it expires at the original deadline (105), not after the patch
+    clock[0] = 105.5
+    assert c.get("/kv/t").status_code == 404
+
+
+def test_patch_counts_in_stats():
+    c = TestClient(app)
+    base_total = c.get("/stats").json()["total_ops"]
+    assert c.post("/kv", json={"key": "p1", "value": {"a": 1}}).status_code == 200
+    assert c.patch("/kv/p1", json={"b": 2}).status_code == 200
+
+    r = c.get("/stats").json()
+    # the patch is a counted op, on top of the put + this stats call
+    assert r["total_ops"] >= base_total + 2
+    assert r["ops_by_kind"].get("patch", 0) >= 1

@@ -1,7 +1,7 @@
 """FastAPI application: a tiny in-memory key-value store with health + echo endpoints."""
 import logging
 import time
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
@@ -17,12 +17,12 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(messag
 
 class KV(BaseModel):
     key: str
-    value: str
+    value: Any  # any JSON value (string, object, list, number, ...); objects support PATCH
     ttl: Optional[int] = None  # optional expiry in seconds; omit for a permanent entry
 
 
-# key -> (value, expires_at). expires_at is None for entries stored without a ttl.
-_store: dict[str, tuple[str, Optional[float]]] = {}
+# key -> (value, expires_at). value is any JSON value; expires_at is None for permanent entries.
+_store: dict[str, tuple[Any, Optional[float]]] = {}
 
 # request counters since boot; mutated by the counting wrapper below
 _ops_total = 0
@@ -30,7 +30,7 @@ _ops_by_kind: dict[str, int] = {}
 
 
 def _bump(kind: str):
-    """Record one kv operation (put/get/delete/list) for /stats."""
+    """Record one kv operation (put/get/delete/list/patch) for /stats."""
     global _ops_total
     _ops_total += 1
     _ops_by_kind[kind] = _ops_by_kind.get(kind, 0) + 1
@@ -103,6 +103,28 @@ def delete(key: str):
         raise HTTPException(status_code=404, detail="key not found")
     del _store[key]
     return {"deleted": key}
+
+
+@app.patch("/kv/{key}")
+def patch(key: str, body: dict):
+    """Shallow-merge `body` into the stored value at `key`.
+
+    The stored value must be a JSON object (dict): top-level keys in `body`
+    replace any existing ones, and new keys are added — but nested objects are
+    REPLACED wholesale, not merged (hence "shallow"). Patching a missing key
+    is 404; patching a non-object value is 409. The entry's ttl (if any) is
+    preserved.
+    """
+    _bump("patch")
+    _purge_expired()
+    if key not in _store:
+        raise HTTPException(status_code=404, detail="key not found")
+    value, expires_at = _store[key]
+    if not isinstance(value, dict):
+        raise HTTPException(status_code=409, detail="stored value is not an object; cannot merge")
+    merged = {**value, **body}  # shallow: body wins on key conflicts, nested replaced
+    _store[key] = (merged, expires_at)
+    return {"key": key, "value": merged}
 
 
 @app.get("/stats")
