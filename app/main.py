@@ -7,8 +7,15 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
 from app.middleware import RequestLoggingMiddleware
+from app.ratelimit import RateLimitMiddleware, RateLimiter
 
 app = FastAPI(title="tiny-kv", version="0.1.0")
+
+# sliding-window rate limiter: 20 requests / 60s per client IP; /health is
+# exempt so health probes don't flap. Tests replace this instance via the
+# module-level `limiter` global below.
+limiter = RateLimiter(max_requests=20, window=60.0)
+app.add_middleware(RateLimitMiddleware, limiter=limiter)
 app.add_middleware(RequestLoggingMiddleware)
 
 # make the access log visible by default (stderr via logging.basicConfig)

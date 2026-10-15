@@ -55,8 +55,13 @@ python -m pytest tests/ -v
 | POST   | /kv         | store key/value (optional ttl)  |
 | GET    | /kv         | list stored keys                |
 | GET    | /kv/{key}   | fetch a value                   |
+| PATCH  | /kv/{key}   | shallow-merge into an object    |
 | DELETE | /kv/{key}   | remove a key                    |
 | GET    | /stats      | store size + op counters        |
+
+Every request is rate-limited per client IP (20 req / 60 s sliding window);
+over-budget calls get `429` with a `Retry-After` header. `/health` is exempt
+so health probes never flap. The limit and window are set in `app/main.py`.
 
 ## License
 
