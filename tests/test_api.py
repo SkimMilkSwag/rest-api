@@ -214,6 +214,21 @@ def test_delete_expired_key_returns_404(monkeypatch):
     assert c.delete("/kv/short").status_code == 404
 
 
+def test_delete_missing_key_returns_404():
+    c = TestClient(app)
+    r = c.delete("/kv/never-stored")
+    assert r.status_code == 404
+    assert r.json()["detail"] == "key not found"
+
+
+def test_delete_returns_deleted_key():
+    c = TestClient(app)
+    assert c.post("/kv", json={"key": "gone", "value": {"n": 1}}).status_code == 200
+    r = c.delete("/kv/gone")
+    assert r.status_code == 200
+    assert r.json() == {"deleted": "gone"}
+
+
 def test_stats_counts_ops_and_store_size(monkeypatch):
     import app.main as m
 
