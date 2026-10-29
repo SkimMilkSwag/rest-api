@@ -463,3 +463,50 @@ def test_rate_limiter_validation_errors():
         rl.RateLimiter(max_requests=0, window=10.0)
     with _p.raises(ValueError):
         rl.RateLimiter(max_requests=5, window=0.0)
+
+
+# --- DELETE ?purge=1 ------------------------------------------------------------
+
+
+def test_delete_purge_missing_key_returns_200():
+    c = TestClient(app)
+    r = c.delete("/kv/never-stored?purge=1")
+    assert r.status_code == 200
+    assert r.json() == {"deleted": "never-stored", "purged": True}
+
+
+def test_delete_purge_expired_key_drops_from_stats(monkeypatch):
+    import app.main as m
+
+    clock = [100.0]
+    monkeypatch.setattr(m, "_now", lambda: clock[0])
+    c = TestClient(app)
+    assert c.post("/kv", json={"key": "evap", "value": "v", "ttl": 5}).status_code == 200
+    # the entry expires at t=105
+    clock[0] = 110.0
+    assert c.get("/kv/evap").status_code == 404
+
+    base_items = c.get("/stats").json()["items"]
+    r = c.delete("/kv/evap?purge=1")
+    assert r.status_code == 200
+    # a plain delete on an expired key would be 404, but it also purges the
+    # entry first (lazy) — ?purge=1 documents that contract and stays 200
+    after = c.get("/stats").json()["items"]
+    assert after == base_items  # nothing leaked into /stats items
+
+
+def test_delete_purge_present_key_is_plain_delete():
+    c = TestClient(app)
+    assert c.post("/kv", json={"key": "p1", "value": 1}).status_code == 200
+    r = c.delete("/kv/p1?purge=1")
+    # present key: normal delete semantics, no "purged" marker
+    assert r.status_code == 200
+    assert r.json() == {"deleted": "p1"}
+    assert c.get("/kv/p1").status_code == 404
+
+
+def test_delete_without_purge_still_404s():
+    c = TestClient(app)
+    r = c.delete("/kv/never-stored")
+    assert r.status_code == 404
+    assert "purged" not in r.json()

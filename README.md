@@ -25,6 +25,18 @@ curl -X POST localhost:8000/kv -H 'Content-Type: application/json' -d '{"key":"s
 curl localhost:8000/kv
 ```
 
+### Idempotent delete (`?purge=1`)
+
+`DELETE /kv/{key}?purge=1` returns 200 even when the key is already gone
+(stale TTL, already deleted): the entry is dropped from the store if present,
+so `/stats` item counts stay accurate after a retry. Without the flag, a
+missing key is `404`. A purge that found nothing still reports
+`{"deleted": ..., "purged": true}` to distinguish it from a real delete:
+
+```bash
+curl -X DELETE 'localhost:8000/kv/session?purge=1'   # 200 whether or not it existed
+```
+
 Interactive docs are at `http://localhost:8000/docs`.
 
 ## Docker

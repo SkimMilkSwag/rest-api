@@ -3,7 +3,7 @@ import logging
 import time
 from typing import Any, Optional
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel
 
 from app.middleware import RequestLoggingMiddleware
@@ -103,10 +103,13 @@ def get(key: str):
 
 
 @app.delete("/kv/{key}")
-def delete(key: str):
+def delete(key: str, purge: bool = Query(False, description="succeed even if the key is already gone (or expired): removes it from the store if present so /stats reflects the removal")):
     _bump("delete")
     _purge_expired()
     if key not in _store:
+        if purge:
+            # Idempotent delete: the caller wanted the key gone, and it is.
+            return {"deleted": key, "purged": True}
         raise HTTPException(status_code=404, detail="key not found")
     del _store[key]
     return {"deleted": key}
