@@ -23,7 +23,18 @@ curl -X POST localhost:8000/kv -H 'Content-Type: application/json' -d '{"key":"s
 
 # list all stored keys (values omitted, insertion order)
 curl localhost:8000/kv
+
+# bare value, no {"key","value"} wrapper — handy for piping into jq/scripts
+curl 'localhost:8000/kv/a?raw=1'
 ```
+
+### Bare-value reads (`?raw=1`)
+
+`GET /kv/{key}?raw=1` returns just the stored value, JSON-encoded, without
+the `{"key": ..., "value": ...}` wrapper (and no `ttl` field) — so
+`curl 'localhost:8000/kv/a?raw=1' | jq .` parses straight to the value.
+Strings stay quoted (they're JSON), objects and arrays pass through
+unchanged, and a missing/expired key still 404s as usual.
 
 ### Idempotent delete (`?purge=1`)
 

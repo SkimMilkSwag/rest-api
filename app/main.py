@@ -1,9 +1,11 @@
 """FastAPI application: a tiny in-memory key-value store with health + echo endpoints."""
+import json
 import logging
 import time
 from typing import Any, Optional
 
 from fastapi import FastAPI, HTTPException, Query
+from fastapi.responses import Response
 from pydantic import BaseModel
 
 from app.middleware import RequestLoggingMiddleware
@@ -90,12 +92,16 @@ def list_kv():
 
 
 @app.get("/kv/{key}")
-def get(key: str):
+def get(key: str, raw: bool = Query(False, description="return the bare value as JSON without the {\"key\",\"value\"} wrapper (for scripting)")):
     _bump("get")
     _purge_expired()
     if key not in _store:
         raise HTTPException(status_code=404, detail="key not found")
     value, expires_at = _store[key]
+    if raw:
+        # The body IS the value — JSON-encoded (strings stay quoted), so
+        # `curl ...?raw=1 | jq` parses straight to it. No wrapper, no ttl.
+        return Response(content=json.dumps(value), media_type="application/json")
     out = {"key": key, "value": value}
     if expires_at is not None:
         out["ttl"] = max(0.0, expires_at - _now())

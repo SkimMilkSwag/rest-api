@@ -90,6 +90,66 @@ def test_kv_404():
     assert c.get("/kv/nope").status_code == 404
 
 
+def test_raw_returns_bare_value():
+    """?raw=1 returns the value itself (JSON-encoded), not the {key,value} wrapper."""
+    c = TestClient(app)
+    assert c.post("/kv", json={"key": "rawstr", "value": "hello"}).status_code == 200
+    r = c.get("/kv/rawstr", params={"raw": 1})
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("application/json")
+    # body is the bare value: a JSON string, not an object wrapper
+    assert r.json() == "hello"
+    # without raw, the same key still returns the full wrapper
+    wrapped = c.get("/kv/rawstr").json()
+    assert wrapped["key"] == "rawstr" and wrapped["value"] == "hello"
+    assert c.delete("/kv/rawstr").status_code == 200
+
+
+def test_raw_returns_structured_values():
+    """?raw=1 passes objects/arrays through as JSON, unchanged."""
+    c = TestClient(app)
+    obj = {"a": 1, "b": [1, 2, 3]}
+    assert c.post("/kv", json={"key": "rawobj", "value": obj}).status_code == 200
+    r = c.get("/kv/rawobj", params={"raw": 1})
+    assert r.status_code == 200
+    assert r.json() == obj
+    assert c.delete("/kv/rawobj").status_code == 200
+
+
+def test_raw_missing_key_still_404s():
+    c = TestClient(app)
+    r = c.get("/kv/raw-none", params={"raw": 1})
+    assert r.status_code == 404
+    assert r.json()["detail"] == "key not found"
+
+
+def test_raw_counts_as_get_op(monkeypatch):
+    """A raw read is still a get op for /stats — only the payload shape changes."""
+    import app.main as m
+
+    monkeypatch.setattr(m, "_now", lambda: 100.0)
+    base_get = m._ops_by_kind.get("get", 0)
+    c = TestClient(app)
+    assert c.post("/kv", json={"key": "rawop", "value": 42}).status_code == 200
+    r = c.get("/kv/rawop", params={"raw": 1})
+    assert r.status_code == 200 and r.json() == 42
+    assert m._ops_by_kind["get"] >= base_get + 1
+    assert c.delete("/kv/rawop").status_code == 200
+
+
+def test_raw_expired_key_404s(monkeypatch):
+    """raw reads honor the same purge path as normal reads."""
+    import app.main as m
+
+    clock = [100.0]
+    monkeypatch.setattr(m, "_now", lambda: clock[0])
+    c = TestClient(app)
+    assert c.post("/kv", json={"key": "rawttl", "value": "gone", "ttl": 5}).status_code == 200
+    assert c.get("/kv/rawttl", params={"raw": 1}).status_code == 200
+    clock[0] = 106.0
+    assert c.get("/kv/rawttl", params={"raw": 1}).status_code == 404
+
+
 def test_list_kv():
     c = TestClient(app)
     assert c.post("/kv", json={"key": "x", "value": "1"}).status_code == 200
