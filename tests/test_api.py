@@ -570,3 +570,55 @@ def test_delete_without_purge_still_404s():
     r = c.delete("/kv/never-stored")
     assert r.status_code == 404
     assert "purged" not in r.json()
+
+
+# --- X-Request-Id header -----------------------------------------------------
+
+_UUID_RE = __import__("re").compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+)
+
+
+def test_request_id_generated_when_absent():
+    """Every response carries X-Request-Id; absent header -> generated uuid4."""
+    c = TestClient(app)
+    r = c.get("/health")
+    assert r.status_code == 200
+    rid = r.headers.get("X-Request-Id")
+    assert rid is not None and _UUID_RE.match(rid), f"not a uuid4: {rid!r}"
+
+
+def test_request_id_echoed_verbatim():
+    """A client-supplied X-Request-Id comes back unchanged."""
+    c = TestClient(app)
+    r = c.get("/kv", headers={"X-Request-Id": "req-abc-123"})
+    assert r.status_code == 200
+    assert r.headers["X-Request-Id"] == "req-abc-123"
+
+
+def test_request_id_present_on_error_responses():
+    """The id is set before the route runs, so even a 404 carries it."""
+    c = TestClient(app)
+    r = c.get("/kv/definitely-not-a-key", headers={"X-Request-Id": "err-id-1"})
+    assert r.status_code == 404
+    assert r.headers["X-Request-Id"] == "err-id-1"
+
+
+def test_request_id_stable_within_one_request():
+    """Same id on the response whether the route succeeds or not, and it is
+    visible to downstream code via request.state."""
+    c = TestClient(app)
+    rid = "stable-check-9"
+    r1 = c.post("/kv", json={"key": "ridprobe", "value": 1}, headers={"X-Request-Id": rid})
+    assert r1.status_code == 200 and r1.headers["X-Request-Id"] == rid
+    r2 = c.get("/kv/ridprobe", headers={"X-Request-Id": rid})
+    assert r2.status_code == 200 and r2.headers["X-Request-Id"] == rid
+    c.delete("/kv/ridprobe")
+
+
+def test_request_id_generated_differently_per_request():
+    """Two requests without the header get two distinct generated ids."""
+    c = TestClient(app)
+    a = c.get("/health").headers["X-Request-Id"]
+    b = c.get("/health").headers["X-Request-Id"]
+    assert a != b

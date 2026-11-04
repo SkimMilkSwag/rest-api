@@ -36,6 +36,20 @@ the `{"key": ..., "value": ...}` wrapper (and no `ttl` field) — so
 Strings stay quoted (they're JSON), objects and arrays pass through
 unchanged, and a missing/expired key still 404s as usual.
 
+### Request ids (`X-Request-Id`)
+
+Every response carries an `X-Request-Id` header. If you send one, it's
+echoed back verbatim (gateways that already assign ids stay correlated end
+to end); otherwise the service generates a fresh uuid4 so each request is
+still individually addressable in the access log:
+
+```bash
+$ curl -sI localhost:8000/health | grep -i x-request-id
+X-Request-Id: 6f0c9a3e-1d2b-4f5a-9c8e-7d6b5a4c3f21
+```
+
+The id is also stored on `request.state.request_id` for downstream code.
+
 ### Idempotent delete (`?purge=1`)
 
 `DELETE /kv/{key}?purge=1` returns 200 even when the key is already gone

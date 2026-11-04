@@ -10,6 +10,7 @@ from pydantic import BaseModel
 
 from app.middleware import RequestLoggingMiddleware
 from app.ratelimit import RateLimitMiddleware, RateLimiter
+from app.requestid import RequestIdMiddleware
 
 app = FastAPI(title="tiny-kv", version="0.1.0")
 
@@ -18,6 +19,9 @@ app = FastAPI(title="tiny-kv", version="0.1.0")
 # module-level `limiter` global below.
 limiter = RateLimiter(max_requests=20, window=60.0)
 app.add_middleware(RateLimitMiddleware, limiter=limiter)
+# request id must run OUTSIDE the logger so the logged line could carry it
+# later; added after the logger means it wraps the logging middleware.
+app.add_middleware(RequestIdMiddleware)
 app.add_middleware(RequestLoggingMiddleware)
 
 # make the access log visible by default (stderr via logging.basicConfig)
