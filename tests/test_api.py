@@ -500,6 +500,56 @@ def test_rate_limiter_denied_request_does_not_extend_window():
         assert int(r.headers["Retry-After"]) == 10
 
 
+# --- request id in access log ---------------------------------------------
+
+def test_access_log_carries_generated_request_id(caplog):
+    """Every logged line ends with [request-id]; generated ids are uuid4."""
+    import re
+    with caplog.at_level(logging.INFO, logger="tiny_kv.access"):
+        c = TestClient(app)
+        r = c.get("/health")
+        assert r.status_code == 200
+    messages = [rec.getMessage() for rec in caplog.records]
+    health_lines = [m for m in messages if "GET /health" in m]
+    assert health_lines, messages
+    line = health_lines[-1]
+    # format: METHOD PATH -> STATUS (N ms) [request-id]
+    match = re.search(r"\[([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\]$", line)
+    assert match, f"expected uuid4 in brackets at end of log line: {line!r}"
+
+
+def test_access_log_carries_echoed_request_id(caplog):
+    """A client-supplied X-Request-Id is echoed in the access log."""
+    with caplog.at_level(logging.INFO, logger="tiny_kv.access"):
+        c = TestClient(app)
+        r = c.get("/health", headers={"X-Request-Id": "my-trace-id-123"})
+        assert r.status_code == 200
+    messages = [rec.getMessage() for rec in caplog.records]
+    health_lines = [m for m in messages if "GET /health" in m]
+    assert health_lines, messages
+    line = health_lines[-1]
+    assert "[my-trace-id-123]" in line, f"echoed id not in log: {line!r}"
+
+
+def test_access_log_request_id_distinct_per_request(caplog):
+    """Each request gets its own distinct generated id in the log."""
+    with caplog.at_level(logging.INFO, logger="tiny_kv.access"):
+        c = TestClient(app)
+        r1 = c.get("/health")
+        r2 = c.get("/health")
+        assert r1.status_code == 200 and r2.status_code == 200
+    messages = [rec.getMessage() for rec in caplog.records]
+    health_lines = [m for m in messages if "GET /health" in m]
+    assert len(health_lines) >= 2, f"need at least 2 health log lines: {health_lines}"
+    # extract the id from each line (last bracketed token)
+    ids = []
+    for line in health_lines:
+        bracket = line.rsplit("[", 1)[-1].rstrip("]")
+        ids.append(bracket)
+    # the last two entries correspond to our two requests and must differ
+    assert len(set(ids[-2:])) == 2, f"expected distinct ids, got {ids}"
+
+
 def test_rate_limiter_health_is_exempt():
     import app.ratelimit as rl
 
