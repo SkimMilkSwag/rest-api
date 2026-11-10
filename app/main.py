@@ -141,7 +141,8 @@ def patch(key: str, body: dict):
         raise HTTPException(status_code=404, detail="key not found")
     value, expires_at = _store[key]
     if not isinstance(value, dict):
-        raise HTTPException(status_code=409, detail="stored value is not an object; cannot merge")
+        kind = type(value).__name__  # 'str', 'list', 'int'...: tell the caller what it hit
+        raise HTTPException(status_code=409, detail=f"stored value is a {kind}; cannot merge")
     merged = {**value, **body}  # shallow: body wins on key conflicts, nested replaced
     _store[key] = (merged, expires_at)
     return {"key": key, "value": merged}

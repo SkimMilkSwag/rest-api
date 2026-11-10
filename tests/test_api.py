@@ -366,7 +366,8 @@ def test_patch_non_object_value_409():
     assert c.post("/kv", json={"key": "scalar", "value": "just-a-string"}).status_code == 200
     r = c.patch("/kv/scalar", json={"a": 1})
     assert r.status_code == 409
-    assert "not an object" in r.json()["detail"]
+    # the detail names the concrete value type (a str here) instead of a generic 'not an object'
+    assert "str" in r.json()["detail"] and "cannot merge" in r.json()["detail"]
 
     # a list value can't be merged either
     assert c.post("/kv", json={"key": "arr", "value": [1, 2, 3]}).status_code == 200
